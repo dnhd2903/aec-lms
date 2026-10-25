@@ -32,7 +32,7 @@ aec-lms/
 │   ├── metrics.py          # ERLE(t), misalignment, mức xác lập, thời gian hội tụ
 │   └── plots.py            # Kiểu hình vẽ chung (LMS luôn màu xanh, NLMS luôn màu cam)
 ├── experiments/
-│   ├── demo.py             # Demo đầu-cuối: chạy LMS và NLMS trên giọng nói thật, xuất WAV và hình
+│   ├── demo.py             # Demo đầu-cuối: chạy LMS và NLMS trên giọng nói thật, xuất WAV và hình (--dtd để bật DTD)
 │   ├── exp1_stepsize.py    # Thí nghiệm 1: quét µ của LMS, đánh đổi tốc độ và sai số xác lập
 │   ├── exp2_lms_vs_nlms.py # Thí nghiệm 2a: quét mức đầu xa; 2b: nhiễu trắng và tiếng nói
 │   └── exp3_doubletalk.py  # Thí nghiệm 3: nói chồng, không DTD / Geigel / DTD lý tưởng
@@ -52,6 +52,7 @@ aec-lms/
 │   ├── rir.png             # Hình RIR, sinh bởi sim/rir.py
 │   ├── demo/               # Kết quả chế độ 1
 │   ├── call/               # Kết quả chế độ cuộc gọi
+│   ├── call_geigel/        # Chế độ cuộc gọi với --dtd geigel (tương tự: call_ideal/)
 │   └── exp1/ exp2/ exp3/   # Hình (và WAV của thí nghiệm 3) cho báo cáo
 ├── report/                 # (đang trống) báo cáo
 ├── requirements.txt
@@ -115,7 +116,23 @@ python3 -m experiments.demo --no-near         # chỉ có đầu xa: đầu ra p
 python3 -m experiments.demo --call data/call
 ```
 
-Kết quả được lưu trong `results/demo/` hoặc `results/call/`:
+**Bộ phát hiện nói chồng (DTD)** dùng được với cả hai chế độ, qua tùy chọn `--dtd`:
+
+```bash
+python3 -m experiments.demo --call data/call                # mặc định --dtd none: thích nghi liên tục
+python3 -m experiments.demo --call data/call --dtd geigel   # đóng băng thích nghi khi Geigel phát hiện nói chồng
+python3 -m experiments.demo --call data/call --dtd ideal    # đóng băng đúng lúc đầu gần nói (chỉ làm được trong mô phỏng)
+```
+
+| `--dtd` | Bộ lọc dừng cập nhật khi | Kết quả lưu ở |
+|---|---|---|
+| `none` (mặc định) | không bao giờ | `results/demo/`, `results/call/` |
+| `geigel` | `\|d(n)\| > 0.5·max\|x\|` trên 256 mẫu gần nhất, giữ thêm 30 ms ([aec/dtd.py](aec/dtd.py)) | `results/demo_geigel/`, `results/call_geigel/` |
+| `ideal` | đầu gần đang nói (dùng thông tin thật, làm cận trên) | `results/demo_ideal/`, `results/call_ideal/` |
+
+Mỗi lựa chọn có thư mục riêng, nên có thể nghe so sánh các bản với nhau. Ở chế độ cuộc gọi, Geigel giúp NLMS hồi phục gần như hoàn toàn sau mỗi đoạn nói chồng: ERLE của đoạn chỉ đầu xa nói ngay sau lần nói chồng đầu tiên tăng từ 13 dB lên 35 dB.
+
+Kết quả được lưu trong thư mục ở bảng trên:
 
 | File | Nội dung |
 |---|---|
@@ -138,12 +155,13 @@ Mọi file WAV dùng chung một hệ số tỉ lệ, nên độ to tương đ�
 | `--lh` | 256 | Độ dài đường truyền tiếng vọng `L_h` (mẫu, 32 ms ở 8 kHz) |
 | `--taps` | `= --lh` | Số hệ số `M` của bộ lọc thích nghi |
 | `--mu-nlms` | 0.5 | Bước NLMS chuẩn hoá (0 < µ̃ < 2) |
+| `--dtd` | `none` | Bộ phát hiện nói chồng: `none`, `geigel` hoặc `ideal` |
 | `--seed` | 0 | Seed cho RIR và nhiễu |
-| `--out` | `results/demo` hoặc `results/call` | Thư mục lưu kết quả |
+| `--out` | `results/demo` hoặc `results/call` (thêm `_geigel` / `_ideal` khi dùng `--dtd`) | Thư mục lưu kết quả |
 
 Bước LMS được chọn tự động là `µ = 0.1 / (M·σ²ₓ)` theo công suất đầu xa, nằm an toàn trong miền ổn định `0 < µ < 2/(M·σ²ₓ)`. Mọi tín hiệu được đưa về 8 kHz trước khi xử lý.
 
-> Demo không dùng bộ phát hiện nói chồng (double-talk detector, DTD), nên trong lúc hai bên cùng nói, bộ lọc bị `s(n)` làm lệch. Đó là hành vi dự kiến; Thí nghiệm 3 so sánh trường hợp này với DTD Geigel và DTD lý tưởng.
+> Với `--dtd none`, trong lúc hai bên cùng nói, bộ lọc bị `s(n)` làm lệch: NLMS ở chế độ cuộc gọi kết thúc với misalignment +10.6 dB, tức là đã phân kỳ. Đó là hành vi dự kiến, và là lý do cần DTD. Thí nghiệm 3 phân tích kỹ trường hợp này.
 
 ### 4. Các thí nghiệm cho báo cáo
 

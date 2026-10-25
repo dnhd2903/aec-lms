@@ -17,12 +17,17 @@ Two modes:
 
        python3 -m experiments.demo --call data/call         # data/call/far_end.wav + data/call/near_end.wav
 
-No double-talk detector yet (Week 3): adaptation runs everywhere, so during
-double-talk the filter is disturbed by s(n). That is expected and is exactly
-what Experiment 3 will show.
+Double-talk detector (--dtd), in either mode:
 
-Outputs in --out (default results/demo or results/call) — all WAVs share one
-scale factor, so their relative loudness is what you would actually hear:
+    none    (default) adapt everywhere: during double-talk s(n) pushes w away from h
+    geigel  freeze the adaptation while aec/dtd.py declares double-talk
+    ideal   freeze exactly while the near-end talks (true activity, simulation only)
+
+       python3 -m experiments.demo --call data/call --dtd geigel
+
+Outputs in --out (default results/demo or results/call, with _geigel / _ideal
+appended when a detector is used, so the runs can be compared side by side) —
+all WAVs share one scale factor, so their relative loudness is what you would actually hear:
     far_end.wav                 x(n): what the far-end talker says, played by the near-end loudspeaker
     far_end_hears_no_aec.wav    d(n): what the far-end talker receives without AEC (the raw
                                 microphone signal: near-end voice + echo of their own voice)
@@ -40,6 +45,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import numpy as np
 
+from aec.dtd import geigel
 from aec.lms import lms
 from eval.metrics import db, misalignment_db, segment_erle_db, sliding_erle_db
 from eval.plots import COLOR_DT, COLOR_LMS, COLOR_NEAR_ONLY, COLOR_NLMS, COLOR_SIGNAL
@@ -142,10 +148,15 @@ def main():
     parser.add_argument("--lh", type=int, default=L_H, help=f"echo-path length L_h in samples (default {L_H} = 32 ms)")
     parser.add_argument("--taps", type=int, help="adaptive filter length M in samples (default = --lh)")
     parser.add_argument("--mu-nlms", type=float, default=0.5, help="NLMS normalised step size (0 < µ̃ < 2)")
+    parser.add_argument("--dtd", choices=["none", "geigel", "ideal"], default="none",
+                        help="double-talk detector that freezes the adaptation (default none)")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out", type=Path, help="output folder (default results/demo, or results/call with --call)")
+    parser.add_argument("--out", type=Path,
+                        help="output folder (default results/demo, or results/call with --call; "
+                             "_geigel / _ideal appended with --dtd)")
     args = parser.parse_args()
-    out = args.out or Path("results/call" if args.call else "results/demo")
+    out = args.out or Path(("results/call" if args.call else "results/demo")
+                           + ("" if args.dtd == "none" else f"_{args.dtd}"))
 
     # --- far-end track x, near-end track s, and who talks when -----------------
     print("Input recordings (after resampling to 8 kHz):")
@@ -168,10 +179,12 @@ def main():
     # δ scaled to the signal level: during far-end pauses ‖x‖² → 0 and a tiny δ
     # would let the noise v drive huge NLMS updates.
     delta = 1e-2 * M * p_x
-    print(f"\nRunning LMS (µ = {mu_lms:.3g}) and NLMS (µ̃ = {args.mu_nlms}, δ = {delta:.3g}) on {N / FS:.1f} s ...")
+    frozen = {"none": np.zeros(N, dtype=bool), "geigel": geigel(x, d, L=M), "ideal": near_mask}[args.dtd]
+    print(f"\nRunning LMS (µ = {mu_lms:.3g}) and NLMS (µ̃ = {args.mu_nlms}, δ = {delta:.3g}) on {N / FS:.1f} s, "
+          f"DTD: {args.dtd} (adaptation frozen {100 * frozen.mean():.0f} % of the time) ...")
     runs = {
-        "LMS": lms(x, d, M, mu_lms, hist_every=HIST_EVERY),
-        "NLMS": lms(x, d, M, args.mu_nlms, normalize=True, delta=delta, hist_every=HIST_EVERY),
+        "LMS": lms(x, d, M, mu_lms, adapt=~frozen, hist_every=HIST_EVERY),
+        "NLMS": lms(x, d, M, args.mu_nlms, normalize=True, delta=delta, adapt=~frozen, hist_every=HIST_EVERY),
     }
 
     # --- numbers ---------------------------------------------------------------
@@ -217,6 +230,12 @@ def main():
         ax.set_ylim(-1.05 * np.max(np.abs(d)), 1.05 * np.max(np.abs(d)))
         ax.set_ylabel("Amplitude")
         ax.set_title(title, loc="left", fontsize=10)
+    if args.dtd != "none":
+        peak = np.max(np.abs(d))
+        axes[0].fill_between(t, -1.05 * peak, -0.9 * peak, where=frozen, color=COLOR_NLMS, lw=0, step="mid")
+        axes[0].set_title(f"Microphone signal d(n); orange = adaptation frozen by the "
+                          f"{'Geigel' if args.dtd == 'geigel' else 'ideal'} DTD",
+                          loc="left", fontsize=10)
 
     erle_lim = (-10, 60)
     for name, color in [("LMS", COLOR_LMS), ("NLMS", COLOR_NLMS)]:
@@ -246,8 +265,9 @@ def main():
                        loc="lower right", bbox_to_anchor=(1, 1), ncol=len(shown), frameon=False, fontsize=9)
 
     kind = "call demo" if args.call else "demo"
+    dtd = {"none": "no double-talk detector", "geigel": "Geigel DTD", "ideal": "ideal DTD"}[args.dtd]
     fig.suptitle(f"AEC {kind} — M = {M}, L_h = {args.lh}, RT60 = {args.rt60 * 1e3:.0f} ms, ERL = {args.erl:.0f} dB, "
-                 f"ENR = {args.enr:.0f} dB, no double-talk detector", fontsize=11)
+                 f"ENR = {args.enr:.0f} dB, {dtd}", fontsize=11)
     fig.tight_layout()
     fig.savefig(out / "demo.png", dpi=150)
     print(f"Saved {out / 'demo.png'}")
