@@ -20,19 +20,27 @@ Bộ lọc `w` học dần để tiến tới `h`, và `e(n)` chỉ còn lại g
 ```
 aec-lms/
 ├── aec/                    # Thuật toán
-│   └── lms.py              # lms(x, d, M, mu, normalize=False, delta, adapt, hist_every)
-│                           #   -> e, y_hat, w_hist   (normalize=True ⇒ NLMS)
+│   ├── lms.py              # lms(x, d, M, mu, normalize=False, delta, adapt, hist_every)
+│   │                       #   -> e, y_hat, w_hist   (normalize=True ⇒ NLMS)
+│   └── dtd.py              # geigel(x, d, L, T, hangover): bộ phát hiện nói chồng Geigel -> mặt nạ bool
 ├── sim/                    # Mô phỏng tín hiệu
 │   ├── rir.py              # make_rir(): đáp ứng xung phòng tổng hợp (nhiễu trắng × đường bao suy giảm theo RT60)
 │   ├── scenario.py         # build_scenario(): tạo r, d từ x, h, s với ERL và ENR cho trước
 │   ├── conversation.py     # Ghép một cuộc gọi hai người từ hai file ghi âm theo kịch bản CALL_SCRIPT
 │   └── audio.py            # Đọc/ghi WAV (scipy.io.wavfile), chuyển mono, resample
+├── eval/                   # Đánh giá
+│   ├── metrics.py          # ERLE(t), misalignment, mức xác lập, thời gian hội tụ
+│   └── plots.py            # Kiểu hình vẽ chung (LMS luôn màu xanh, NLMS luôn màu cam)
 ├── experiments/
-│   └── demo.py             # Demo đầu-cuối: chạy LMS và NLMS trên giọng nói thật, xuất WAV và hình
+│   ├── demo.py             # Demo đầu-cuối: chạy LMS và NLMS trên giọng nói thật, xuất WAV và hình
+│   ├── exp1_stepsize.py    # Thí nghiệm 1: quét µ của LMS, đánh đổi tốc độ và sai số xác lập
+│   ├── exp2_lms_vs_nlms.py # Thí nghiệm 2a: quét mức đầu xa; 2b: nhiễu trắng và tiếng nói
+│   └── exp3_doubletalk.py  # Thí nghiệm 3: nói chồng, không DTD / Geigel / DTD lý tưởng
 ├── tests/                  # Kiểm thử pytest
 │   ├── test_convergence.py # LMS/NLMS phải hội tụ (misalignment < −30 dB) trên trường hợp dễ
 │   ├── test_rir.py         # Năng lượng, tính tái lập theo seed, RT60 đo lại khớp RT60 yêu cầu
-│   └── test_conversation.py# Cắt câu theo khoảng lặng, xếp câu lên dòng thời gian
+│   ├── test_conversation.py# Cắt câu theo khoảng lặng, xếp câu lên dòng thời gian
+│   └── test_dtd.py         # Geigel ít báo nhầm khi chỉ đầu xa nói, phát hiện được đầu gần, hangover đúng
 ├── data/                   # Dữ liệu ghi âm (đầu vào)
 │   ├── far_end.wav         # Giọng đầu xa cho chế độ 1 (bản gốc: far_end.m4a)
 │   ├── near_end.wav        # Giọng đầu gần cho chế độ 1 (bản gốc: near_end.m4a)
@@ -43,8 +51,8 @@ aec-lms/
 ├── results/                # Kết quả sinh ra (WAV + PNG)
 │   ├── rir.png             # Hình RIR, sinh bởi sim/rir.py
 │   ├── demo/               # Kết quả chế độ 1
-│   └── call/               # Kết quả chế độ cuộc gọi
-├── eval/                   # (đang trống) chỉ số đánh giá và hình vẽ cho các thí nghiệm
+│   ├── call/               # Kết quả chế độ cuộc gọi
+│   └── exp1/ exp2/ exp3/   # Hình (và WAV của thí nghiệm 3) cho báo cáo
 ├── report/                 # (đang trống) báo cáo
 ├── requirements.txt
 └── pytest.ini              # Đặt pythonpath = . để test import được aec/ và sim/
@@ -81,7 +89,7 @@ Chỉ cần cài thêm `ffmpeg` nếu muốn chuyển file ghi âm `.m4a` sang `
 python3 -m pytest -q
 ```
 
-Kết quả mong đợi là `17 passed`.
+Kết quả mong đợi là `20 passed`.
 
 ### 2. Xem đáp ứng xung phòng (RIR)
 
@@ -135,7 +143,24 @@ Mọi file WAV dùng chung một hệ số tỉ lệ, nên độ to tương đ�
 
 Bước LMS được chọn tự động là `µ = 0.1 / (M·σ²ₓ)` theo công suất đầu xa, nằm an toàn trong miền ổn định `0 < µ < 2/(M·σ²ₓ)`. Mọi tín hiệu được đưa về 8 kHz trước khi xử lý.
 
-> Hiện chưa có bộ phát hiện nói chồng (double-talk detector), nên trong lúc hai bên cùng nói, bộ lọc bị `s(n)` làm lệch. Đó là hành vi dự kiến; tham số `adapt` của `lms()` đã có sẵn để cắm bộ phát hiện này vào sau.
+> Demo không dùng bộ phát hiện nói chồng (double-talk detector, DTD), nên trong lúc hai bên cùng nói, bộ lọc bị `s(n)` làm lệch. Đó là hành vi dự kiến; Thí nghiệm 3 so sánh trường hợp này với DTD Geigel và DTD lý tưởng.
+
+### 4. Các thí nghiệm cho báo cáo
+
+Mỗi script in ra một bảng số liệu và lưu hình vào `results/expN/`. Mỗi script chạy trong khoảng 1–12 giây.
+
+```bash
+python3 -m experiments.exp1_stepsize      # results/exp1/stepsize.png
+python3 -m experiments.exp2_lms_vs_nlms   # results/exp2/gain.png, results/exp2/speech.png
+python3 -m experiments.exp3_doubletalk    # results/exp3/doubletalk.png + 7 file WAV
+```
+
+| Thí nghiệm | Câu hỏi | Kết quả chính |
+|---|---|---|
+| 1. Quét µ (nhiễu trắng) | µ lớn hay nhỏ thì tốt hơn? | µ lớn hội tụ nhanh hơn nhưng sai số xác lập cao hơn; đường đo khớp lý thuyết trong khoảng 0.5 dB |
+| 2a. Quét mức đầu xa | Cùng một µ có an toàn ở mọi âm lượng không? | LMS phân kỳ khi đầu xa to hơn khoảng 13 dB, đúng như lý thuyết; NLMS không đổi |
+| 2b. Nhiễu trắng và tiếng nói | Vì sao LMS chậm trên tiếng nói? | Độ trải trị riêng χ ≈ 44 dB, LMS chỉ đạt misalignment −8 dB sau 30 s (nhiễu trắng: −48 dB) |
+| 3. Nói chồng | DTD giúp được bao nhiêu? | ERLE khi nói chồng (NLMS): không DTD −1 dB, Geigel 0 dB, DTD lý tưởng 35 dB; Geigel ngăn được phân kỳ (+13 → −6.5 dB) |
 
 ## Dùng dữ liệu ghi âm của bạn
 

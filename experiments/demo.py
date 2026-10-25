@@ -36,13 +36,13 @@ Any far-end voice heard in the far_end_hears_*.wav files is echo.
 import argparse
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import numpy as np
 
 from aec.lms import lms
+from eval.metrics import db, misalignment_db, segment_erle_db, sliding_erle_db
+from eval.plots import COLOR_DT, COLOR_LMS, COLOR_NEAR_ONLY, COLOR_NLMS, COLOR_SIGNAL
 from sim.audio import load_wav, save_wav
 from sim.conversation import CALL_SCRIPT, place_timeline, split_utterances
 from sim.rir import make_rir
@@ -54,16 +54,6 @@ L_H = 256               # default echo-path length
 ERLE_WIN = 400          # 50 ms sliding window (PROJECT_PLAN §6)
 HIST_EVERY = 100
 MIN_SEGMENT = 0.3       # shorter activity segments are not listed in the ERLE table
-
-COLOR_LMS = "#2a78d6"
-COLOR_NLMS = "#eb6834"
-COLOR_SIGNAL = "#8a8a85"
-COLOR_NEAR_ONLY = "#efeee9"
-COLOR_DT = "#dcdad2"
-
-
-def db(p):
-    return 10 * np.log10(np.maximum(p, 1e-20))
 
 
 def load_recording(path, name):
@@ -96,30 +86,6 @@ def activity_segments(far_mask, near_mask):
     change = np.flatnonzero(np.diff(code)) + 1
     bounds = np.concatenate([[0], change, [len(code)]])
     return [(labels[code[a]], a, b) for a, b in zip(bounds[:-1], bounds[1:])]
-
-
-def sliding_erle_db(r, y_hat, win=ERLE_WIN):
-    """
-    ERLE(n) = 10·log10( Σ r² / Σ (r − ŷ)² ) over a sliding window, using the true echo r.
-    NaN where there is (almost) no echo, since the ratio is meaningless there.
-    """
-    k = np.ones(win)
-    echo = np.convolve(r ** 2, k, "same")
-    erle = db(echo) - db(np.convolve((r - y_hat) ** 2, k, "same"))
-    erle[echo < 1e-4 * np.max(echo)] = np.nan
-    return erle
-
-
-def segment_erle_db(r, y_hat, a, b):
-    return db(np.sum(r[a:b] ** 2)) - db(np.sum((r[a:b] - y_hat[a:b]) ** 2))
-
-
-def misalignment_db(h, w_hist):
-    """Normalised misalignment; when M ≠ L_h the shorter one is zero-padded."""
-    L = max(len(h), w_hist.shape[1])
-    h = np.pad(h, (0, L - len(h)))
-    w_hist = np.pad(w_hist, ((0, 0), (0, L - w_hist.shape[1])))
-    return 20 * np.log10(np.linalg.norm(w_hist - h, axis=1) / np.linalg.norm(h))
 
 
 def build_two_recordings(args):
@@ -255,7 +221,7 @@ def main():
     erle_lim = (-10, 60)
     for name, color in [("LMS", COLOR_LMS), ("NLMS", COLOR_NLMS)]:
         e, y_hat, w_hist = runs[name]
-        axes[2].plot(t, np.clip(sliding_erle_db(r, y_hat), *erle_lim), color=color, lw=1, label=name)
+        axes[2].plot(t, np.clip(sliding_erle_db(r, y_hat, ERLE_WIN), *erle_lim), color=color, lw=1, label=name)
         axes[3].plot(t_w, misalignment_db(h, w_hist), color=color, lw=2, label=name)
     axes[2].set_ylim(*erle_lim)
     axes[2].set_ylabel("ERLE (dB)")
