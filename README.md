@@ -18,7 +18,7 @@ Bộ lọc `w` học dần để tiến tới `h`, và `e(n)` chỉ còn lại g
 ## Cấu trúc thư mục
 
 ```
-aec_lms/
+aec-lms/
 ├── aec/                    # Thuật toán
 │   └── lms.py              # lms(x, d, M, mu, normalize=False, delta, adapt, hist_every)
 │                           #   -> e, y_hat, w_hist   (normalize=True ⇒ NLMS)
@@ -52,16 +52,26 @@ aec_lms/
 
 ## Cài đặt
 
-Cần **Python ≥ 3.9**, đã thử với Python 3.10. Không bắt buộc dùng môi trường ảo.
+Cần **Python ≥ 3.9**, đã thử với Python 3.10.
 
 ```bash
-cd aec_lms
-pip install -r requirements.txt     # numpy, scipy, matplotlib, pytest
+git clone https://github.com/dnhd2903/aec-lms.git
+cd aec-lms
+python3 -m pip install -r requirements.txt     # numpy, scipy, matplotlib, pytest
+```
+
+Không bắt buộc dùng môi trường ảo. Tuy nhiên trên Ubuntu ≥ 23.04 hoặc Debian ≥ 12, lệnh `pip install` vào Python hệ thống sẽ bị từ chối với lỗi `externally-managed-environment`. Khi đó hãy tạo môi trường ảo rồi cài lại:
+
+```bash
+sudo apt install python3-venv                  # chỉ cần nếu lệnh dưới báo thiếu venv/ensurepip
+python3 -m venv .venv
+source .venv/bin/activate                      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 Chỉ cần cài thêm `ffmpeg` nếu muốn chuyển file ghi âm `.m4a` sang `.wav` (xem bên dưới).
 
-> **Lưu ý:** mọi lệnh đều phải chạy từ thư mục `aec_lms/`. Code được chạy dưới dạng module (`python3 -m ...`) và dùng đường dẫn tương đối `data/`, `results/`.
+> **Lưu ý:** mọi lệnh đều phải chạy từ thư mục gốc của repo (`aec-lms/`). Code được chạy dưới dạng module (`python3 -m ...`) và dùng đường dẫn tương đối `data/`, `results/`.
 
 ## Chạy code
 
